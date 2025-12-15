@@ -1,0 +1,83 @@
+# 默认配置（无敏感信息），可按需修改
+server:
+  host: "0.0.0.0"
+  port: 8021
+  cors_allow_origins: ["*"]
+
+neo4j:
+  uri: "neo4j://172.16.15.249:7687"
+  username: "neo4j"
+  password: "password"
+  database: "neo4j"
+
+retention:
+  max_versions: 10
+  enable_cleanup: true
+
+query:
+  default_limit_nodes: 500
+  default_limit_edges: 1000
+  default_depth: 2
+  max_seed_nodes: 30
+
+hooks:
+  module: "server.utils.hooks_db"
+  full: "get_full_data"
+  incremental: "get_incremental_data"
+  connection_string: "postgresql://vector_user:vector_pass@172.16.15.236:5432/data_integration"
+  # connection_string_env: HOOKS_DB_CONNECTION_STRING  # 可选：从环境变量读取
+  table_name: "knowledge_chunks_kg_test"
+output:
+  language: zh
+  entity_name_mode: source
+  relation_name_mode: source
+
+atom:
+  ent_threshold: 0.9
+  rel_threshold: 0.9
+  entity_name_weight: 0.8
+  entity_label_weight: 0.2
+  max_workers: 8
+  matching:
+    require_same_entity_label: true
+    rename_relationship_by_embedding: false
+
+llm:
+  api_key: "sk-qPCtivhoJmQj91fsGEljHybU9Ua2Tor3AaCnk5WHS3m810KY"
+  api_base_url: "https://oneapi.wchat.cc/v1"
+  model: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+  max_tokens: 8192
+  temperature: 0
+  max_retries: 0
+  rate_limit:
+    rpm: 120
+    tpm: 200000
+  concurrency:
+    max_in_flight: 8
+  retry:
+    max_retries: 6
+    initial_backoff_s: 1.0
+    max_backoff_s: 30.0
+    backoff_multiplier: 2.0
+
+embeddings:
+  api_key: "sk-qPCtivhoJmQj91fsGEljHybU9Ua2Tor3AaCnk5WHS3m810KY"
+  api_base_url: "https://oneapi.wchat.cc/v1"
+  model: "Qwen/Qwen3-Embedding-8B"
+  rate_limit:
+    rpm: 300
+    tpm: 600000
+  concurrency:
+    max_in_flight: 16
+  retry:
+    max_retries: 6
+    initial_backoff_s: 1.0
+    max_backoff_s: 30.0
+    backoff_multiplier: 2.0
+
+task:
+  timeout_s: 0
+
+logging:
+  level: "INFO"
+

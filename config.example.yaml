@@ -1,0 +1,68 @@
+# kg-api-server 配置模板（YAML）
+server:
+  host: "0.0.0.0"
+  port: 8021
+  cors_allow_origins: ["*"]
+
+neo4j:
+  uri: "neo4j://127.0.0.1:7687"
+  username: "neo4j"
+  # password_env: NEO4J_PASSWORD
+  password: "password"
+  database: "neo4j"
+
+retention:
+  max_versions: 10
+  enable_cleanup: true
+
+query:
+  default_limit_nodes: 500
+  default_limit_edges: 1000
+  default_depth: 2
+  max_seed_nodes: 30
+
+hooks:
+  module: "server.utils.hooks_example"
+  full: "get_full_data"
+  incremental: "get_incremental_data"
+
+llm:
+  # 二选一：api_key 或 api_key_env
+  api_key_env: LLM_API_KEY
+  api_base_url: "http://127.0.0.1:8000/v1"
+  model: "gpt-4o-mini"
+  max_tokens: 4096
+  temperature: 0
+  max_retries: 0
+  rate_limit:
+    rpm: 120
+    tpm: 200000
+  concurrency:
+    max_in_flight: 8
+  retry:
+    max_retries: 6
+    initial_backoff_s: 1.0
+    max_backoff_s: 30.0
+    backoff_multiplier: 2.0
+
+embeddings:
+  api_key_env: EMBEDDINGS_API_KEY
+  api_base_url: "http://127.0.0.1:8000/v1"
+  model: "text-embedding-3-small"
+  rate_limit:
+    rpm: 300
+    tpm: 600000
+  concurrency:
+    max_in_flight: 16
+  retry:
+    max_retries: 6
+    initial_backoff_s: 1.0
+    max_backoff_s: 30.0
+    backoff_multiplier: 2.0
+
+task:
+  timeout_s: 0
+
+logging:
+  level: "INFO"
+

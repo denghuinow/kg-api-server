@@ -1,0 +1,28 @@
+[project]
+name = "kg-api-server"
+version = "0.1.0"
+description = "Knowledge graph API server with versioned Neo4j storage"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "neo4j>=5.16",
+  "langchain-openai>=0.2.0",
+  "numpy>=1.24",
+  "tiktoken>=0.7.0",
+  "python-dateutil>=2.9",
+  "itext2kg>=1.0.0",
+  "psycopg2-binary>=2.9.0"
+]
+
+[project.scripts]
+kg-api-server = "server.main:main"
+
+[tool.uv]
+package = true
+dev-dependencies = []
+
+[tool.uv.sources]
+itext2kg = { path = "../itext2kg" }
