@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  kg-api-server:
+    build:
+      context: ..
+      dockerfile: kg-api-server/Dockerfile
+    container_name: kg-api-server
+    ports:
+      - "8021:8021"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      # 可选：通过环境变量覆盖配置
+      # - LLM_API_KEY=${LLM_API_KEY}
+      # - EMBEDDINGS_API_KEY=${EMBEDDINGS_API_KEY}
+      # - API_KEY=${API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # Linux 支持访问宿主机
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8021/docs", "||", "exit", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
