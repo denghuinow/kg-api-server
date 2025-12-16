@@ -118,7 +118,7 @@ RETURN e
 """
         rel_query = """
 MATCH (s:Entity {kg_version: $v})-[r:REL {kg_version: $v}]->(t:Entity {kg_version: $v})
-RETURN s, r, t
+RETURN s, properties(r) AS rp, t
 """
 
         entities: List[Entity] = []
@@ -137,7 +137,6 @@ RETURN s, r, t
         for row in self.client.run(rel_query, {"v": version}):
             s = row["s"]
             t = row["t"]
-            r = row["r"]
             sp = props_dict(s)
             tp = props_dict(t)
             start_label = str(sp.get("entity_label", "") or "")
@@ -150,7 +149,9 @@ RETURN s, r, t
             if start_ent is None or end_ent is None:
                 continue
 
-            rp = props_dict(r)
+            rp = row.get("rp") or {}
+            if not isinstance(rp, dict):
+                rp = {}
             rel_props = RelationshipProperties(
                 embeddings=_list_to_np(rp.get("embeddings")),
                 atomic_facts=list(rp.get("atomic_facts", []) or []),
@@ -160,10 +161,7 @@ RETURN s, r, t
             )
             predicate = rp.get("predicate")
             if not predicate:
-                # Fallback: try to get type from r if it's an object, otherwise use default
-                predicate = getattr(r, "type", None) if not isinstance(r, dict) else None
-                if not predicate:
-                    predicate = "related_to"
+                predicate = "related_to"
             relationships.append(
                 Relationship(
                     startEntity=start_ent,
@@ -326,7 +324,7 @@ UNWIND rels AS r
 WITH DISTINCT r
 LIMIT $limit_edges
 MATCH (a)-[r]->(b)
-RETURN a AS s, r AS r, b AS t
+RETURN a AS s, properties(r) AS rp, b AS t
 """
                 rows = self.client.run(
                     expand_query,
@@ -341,11 +339,11 @@ RETURN a AS s, r AS r, b AS t
                 for row in rows:
                     add_node(row["s"])
                     add_node(row["t"])
-                    add_edge(row["s"], row["r"], row["t"])
+                    add_edge(row["s"], row["rp"], row["t"])
         else:
             edge_query = """
 MATCH (s:Entity {kg_version: $v})-[r:REL {kg_version: $v}]->(t:Entity {kg_version: $v})
-RETURN s, r, t
+RETURN s, properties(r) AS rp, t
 LIMIT $limit_edges
 """
             if limit_edges > 0:
@@ -353,7 +351,7 @@ LIMIT $limit_edges
                 for row in rows:
                     add_node(row["s"])
                     add_node(row["t"])
-                    add_edge(row["s"], row["r"], row["t"])
+                    add_edge(row["s"], row["rp"], row["t"])
 
             if not nodes:
                 node_query = """

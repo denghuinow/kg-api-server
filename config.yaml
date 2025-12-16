@@ -27,17 +27,66 @@ hooks:
   connection_string: "postgresql://vector_user:vector_pass@172.16.15.236:5432/data_integration"
   # connection_string_env: HOOKS_DB_CONNECTION_STRING  # 可选：从环境变量读取
   table_name: "knowledge_chunks_kg_test"
+
+deps:
+  # 强制优先使用仓库内的 itext2kg 代码（用于本地联调/开发），避免误用 .venv/site-packages 里的旧版本
+  local_itext2kg_path: "../itext2kg"
 output:
   language: zh
   entity_name_mode: source
   relation_name_mode: source
+  # 当模型未给出关系名或给出空白时的兜底关系名（用于诊断与后续收敛）
+  relation_fallback_name: related_to
+
+ontology:
+  entity_label:
+    # 限定 Entity.label 的取值，避免出现中文label被清洗成“_”或把领域术语当作label
+    # 说明：会被统一转为小写后参与校验/入库
+    allowlist:
+      - person
+      - organization
+      - event
+      - field
+      - model
+      - location
+      - method
+      - concept
+      - unknown
+    # 将常见中文/变体映射到英文粗粒度类别（key不区分大小写）
+    aliases:
+      人: person
+      人物: person
+      个人: person
+      组织: organization
+      机构: organization
+      公司: organization
+      企业: organization
+      事件: event
+      时间: event
+      领域: field
+      学科: field
+      方向: field
+      模型: model
+      技术: method
+      方法: method
+      概念: concept
+      地点: location
+      地区: location
+      unknown: unknown
+    unknown_label: unknown
+    # 若为 true，则 start/end 任一端 label=unknown 的关系会被丢弃（更严格、更少误合并）
+    drop_unknown: false
 
 atom:
-  ent_threshold: 0.9
-  rel_threshold: 0.9
+  ent_threshold: 0.92
+  rel_threshold: 0.92
   entity_name_weight: 0.8
   entity_label_weight: 0.2
   max_workers: 8
+  debug:
+    # 开启后会在构图时统计 Relationship.name 为空的比例，并输出少量样例（截断 atomic_fact）
+    log_empty_relation_name: true
+    relation_name_sample_size: 5
   matching:
     require_same_entity_label: true
     rename_relationship_by_embedding: false
@@ -45,7 +94,8 @@ atom:
 llm:
   api_key: "sk-qPCtivhoJmQj91fsGEljHybU9Ua2Tor3AaCnk5WHS3m810KY"
   api_base_url: "https://oneapi.wchat.cc/v1"
-  model: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+  # model: "Qwen/Qwen3-30B-A3B-Instruct-2507"
+  model: "qwen3-235b-a22b-instruct-2507"
   max_tokens: 8192
   temperature: 0
   max_retries: 0
@@ -80,4 +130,5 @@ task:
 
 logging:
   level: "INFO"
-
+  # 默认关闭 OpenAI/httpx 的每次请求 200 OK 日志
+  silence_http_requests: true

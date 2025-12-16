@@ -1,0 +1,577 @@
+# kg-api-server HTTP 接口文档
+
+## 概述
+
+kg-api-server 是一个基于 FastAPI 的知识图谱接口服务，提供知识图谱的构建、更新和查询功能。服务使用 Neo4j 作为存储后端，支持多版本隔离和异步任务处理。
+
+**版本**: 0.1.0  
+**基础URL**: `http://{host}:{port}`（默认 `http://0.0.0.0:8021`）
+
+---
+
+## 通用约定
+
+### 请求头
+
+所有接口支持以下请求头：
+
+```
+Content-Type: application/json; charset=utf-8
+Accept: application/json
+```
+
+### 响应格式
+
+所有接口统一使用以下响应结构：
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "error": null
+}
+```
+
+或错误响应：
+
+```json
+{
+  "success": false,
+  "data": null,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "错误描述",
+    "detail": { ... }
+  }
+}
+```
+
+### 状态码
+
+- **200 OK**: 请求成功
+- **400 Bad Request**: 请求参数错误或业务逻辑错误
+- **404 Not Found**: 资源不存在（如没有可查询的已完成版本）
+- **409 Conflict**: 资源冲突（如任务正在运行中）
+- **500 Internal Server Error**: 服务器内部错误
+
+### 版本号
+
+版本号使用 UTC 毫秒时间戳字符串格式，例如：`"1725123456789"`。
+
+### 状态枚举
+
+#### 系统状态 (`status`)
+
+系统状态 `status` 可能的值及其含义：
+
+- **`IDLE`**: 空闲状态，无任务进行中
+  - 系统处于空闲状态，可以接受新的构建或更新任务
+  - 通常出现在服务刚启动且从未执行过任务，或上次任务完成后
+
+- **`BUILDING`**: 全量构建进行中
+  - 系统正在执行全量构建任务
+  - 在此状态下，无法触发新的构建或更新任务（会返回 409 Conflict）
+  - 查询接口仍可正常使用，返回的是上一版 `latest_ready_version` 的数据
+
+- **`UPDATING`**: 增量更新进行中
+  - 系统正在执行增量更新任务
+  - 在此状态下，无法触发新的构建或更新任务（会返回 409 Conflict）
+  - 查询接口仍可正常使用，返回的是上一版 `latest_ready_version` 的数据
+
+- **`READY`**: 最新版本可用
+  - 最近一次任务已成功完成，有可用的最新版本
+  - 系统可以接受新的构建或更新任务
+  - 所有查询接口返回的是当前 `latest_ready_version` 的数据
+
+- **`FAILED`**: 最近一次任务失败
+  - 最近一次构建或更新任务执行失败
+  - 系统仍可接受新的构建或更新任务
+  - 如果之前有成功完成的版本，查询接口仍可返回上一版 `latest_ready_version` 的数据
+  - 任务失败信息记录在 `current_task.error` 字段中
+
+#### 任务类型 (`type`)
+
+任务类型 `type` 可能的值及其含义：
+
+- **`full_build`**: 全量构建
+  - 从全量数据构建知识图谱，生成全新的版本
+  - 不依赖任何历史版本，适用于首次构建或需要完全重建的场景
+  - 会调用配置的 `get_full_data()` hook 获取全量数据
+
+- **`incremental_update`**: 增量更新
+  - 基于最新已完成版本进行增量更新，生成新版本
+  - 需要存在 `latest_ready_version` 作为基线版本（`base_version`）
+  - 会调用配置的 `get_incremental_data(base_version)` hook 获取增量数据
+  - 新版本数据与旧版本数据在 Neo4j 中隔离存储，保留历史版本
+
+---
+
+## 接口列表
+
+### 1. 查询（构建/更新）状态
+
+查询当前系统状态、最新已完成版本号和当前任务信息。
+
+**接口地址**: `GET /kg/status`
+
+**请求参数**: 无
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "READY",
+    "latest_ready_version": "1725123456789",
+    "current_task": {
+      "task_id": "1725123456789",
+      "type": "full_build",
+      "version": "1725123456789",
+      "base_version": null,
+      "started_at": "2024-01-01T12:00:00",
+      "finished_at": "2024-01-01T12:30:00",
+      "progress": 100,
+      "message": "构建完成",
+      "error": null
+    }
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `status` | string | 系统状态，枚举值：`IDLE`（空闲）、`BUILDING`（全量构建中）、`UPDATING`（增量更新中）、`READY`（最新版本可用）、`FAILED`（任务失败）。详见上方"状态枚举"说明 |
+| `latest_ready_version` | string \| null | 最新已完成版本号，无版本时为 `null` |
+| `current_task` | object \| null | 当前任务信息，无任务时为 `null` |
+| `current_task.task_id` | string | 任务唯一标识 |
+| `current_task.type` | string | 任务类型，枚举值：`full_build`（全量构建）、`incremental_update`（增量更新）。详见上方"状态枚举"说明 |
+| `current_task.version` | string | 本次任务的目标版本号 |
+| `current_task.base_version` | string \| null | 增量更新的基线版本号，全量构建时为 `null` |
+| `current_task.started_at` | string | 任务开始时间（ISO8601 格式） |
+| `current_task.finished_at` | string \| null | 任务完成时间，未完成时为 `null` |
+| `current_task.progress` | integer \| null | 任务进度（0-100），可选 |
+| `current_task.message` | string \| null | 可读状态描述，可选 |
+| `current_task.error` | string \| null | 失败时的错误信息，可选 |
+
+---
+
+### 2. 触发全量构建
+
+触发知识图谱的全量构建任务，生成新版本。
+
+**接口地址**: `POST /kg/build/full`
+
+**请求体** (JSON):
+
+```json
+{
+  "graph_name": "default",
+  "trigger_source": "manual"
+}
+```
+
+**请求参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| `graph_name` | string | 否 | - | 图谱名称，当前仅支持 `"default"` |
+| `trigger_source` | string | 否 | - | 触发来源，如 `"manual"`、`"schedule"` 等 |
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "1725123456789",
+    "status": "BUILDING",
+    "version": "1725123456789"
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `task_id` | string | 任务唯一标识（与 `version` 相同） |
+| `status` | string | 任务状态，固定为 `"BUILDING"`（全量构建进行中）。详见上方"状态枚举"说明 |
+| `version` | string | 本次构建的版本号（UTC 毫秒时间戳） |
+
+**错误响应**:
+
+- **409 Conflict**: 当前有任务进行中
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "TASK_RUNNING",
+      "message": "当前有任务进行中",
+      "detail": {
+        "status": "BUILDING",
+        "latest_ready_version": "1725123456789",
+        "current_task": { ... }
+      }
+    }
+  }
+  ```
+
+- **400 Bad Request**: 无效的 `graph_name`
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "INVALID_GRAPH_NAME",
+      "message": "仅支持 graph_name=default"
+    }
+  }
+  ```
+
+- **500 Internal Server Error**: 触发失败
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "INTERNAL_ERROR",
+      "message": "触发全量构建失败",
+      "detail": "错误详情"
+    }
+  }
+  ```
+
+---
+
+### 3. 触发增量更新
+
+触发知识图谱的增量更新任务，基于最新已完成版本生成新版本。
+
+**接口地址**: `POST /kg/update/incremental`
+
+**请求体** (JSON):
+
+```json
+{
+  "graph_name": "default",
+  "trigger_source": "manual"
+}
+```
+
+**请求参数说明**:
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| `graph_name` | string | 否 | - | 图谱名称，当前仅支持 `"default"` |
+| `trigger_source` | string | 否 | - | 触发来源，如 `"manual"`、`"schedule"` 等 |
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "task_id": "1725123456790",
+    "status": "UPDATING",
+    "version": "1725123456790",
+    "base_version": "1725123456789"
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `task_id` | string | 任务唯一标识（与 `version` 相同） |
+| `status` | string | 任务状态，固定为 `"UPDATING"`（增量更新进行中）。详见上方"状态枚举"说明 |
+| `version` | string | 本次更新的版本号（UTC 毫秒时间戳） |
+| `base_version` | string | 增量更新的基线版本号（即触发时的 `latest_ready_version`） |
+
+**错误响应**:
+
+- **400 Bad Request**: 没有基线版本（需先执行全量构建）
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "NO_BASE_VERSION",
+      "message": "尚无 latest_ready_version，请先执行全量构建"
+    }
+  }
+  ```
+
+- **409 Conflict**: 当前有任务进行中（同全量构建）
+
+- **400 Bad Request**: 无效的 `graph_name`（同全量构建）
+
+- **500 Internal Server Error**: 触发失败（同全量构建）
+
+---
+
+### 4. 获取所有实体类型
+
+获取知识图谱中所有实体类型的列表。
+
+**接口地址**: `GET /kg/types/entities`
+
+**请求参数**: 无
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "version": "1725123456789",
+    "entity_types": [
+      "person",
+      "organization",
+      "event",
+      "location",
+      "concept"
+    ]
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `version` | string | 查询所基于的版本号（`latest_ready_version`） |
+| `entity_types` | array[string] | 实体类型列表 |
+
+**错误响应**:
+
+- **404 Not Found**: 当前没有可查询的已完成版本
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "NO_READY_VERSION",
+      "message": "当前没有可查询的已完成版本"
+    }
+  }
+  ```
+
+---
+
+### 5. 获取所有关系类型
+
+获取知识图谱中所有关系类型的列表。
+
+**接口地址**: `GET /kg/types/relations`
+
+**请求参数**: 无
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "version": "1725123456789",
+    "relation_types": [
+      "works_for",
+      "located_in",
+      "participates_in",
+      "related_to"
+    ]
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `version` | string | 查询所基于的版本号（`latest_ready_version`） |
+| `relation_types` | array[string] | 关系类型列表 |
+
+**错误响应**:
+
+- **404 Not Found**: 当前没有可查询的已完成版本（同实体类型接口）
+
+---
+
+### 6. 图谱数据查询（关键词子图）
+
+查询知识图谱数据，支持关键词搜索和全量查询两种模式。
+
+**接口地址**: `GET /kg/query`
+
+**请求参数** (Query Parameters):
+
+| 参数名 | 类型 | 必填 | 默认值 | 说明 |
+|--------|------|------|--------|------|
+| `q` | string | 否 | - | 关键词，用于搜索匹配的节点；不传或为空时返回全量图谱 |
+| `limit_nodes` | integer | 否 | 500 | 返回的最大节点数量（≥1） |
+| `limit_edges` | integer | 否 | 1000 | 返回的最大边数量（≥0） |
+| `depth` | integer | 否 | 2 | 子图扩展深度（≥0），仅在 `q` 非空时生效 |
+| `include_properties` | boolean | 否 | true | 是否包含节点和边的属性信息 |
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "version": "1725123456789",
+    "nodes": [
+      {
+        "id": "node_1",
+        "types": ["Entity"],
+        "name": "人工智能",
+        "properties": {
+          "entity_label": "concept",
+          "kg_version": "1725123456789"
+        }
+      },
+      {
+        "id": "node_2",
+        "types": ["Entity"],
+        "name": "机器学习",
+        "properties": {
+          "entity_label": "concept",
+          "kg_version": "1725123456789"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge_1",
+        "type": "REL",
+        "source": "node_1",
+        "target": "node_2",
+        "properties": {
+          "predicate": "related_to",
+          "kg_version": "1725123456789"
+        }
+      }
+    ],
+    "truncated": false
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `version` | string | 查询所基于的版本号（`latest_ready_version`） |
+| `nodes` | array[object] | 节点列表 |
+| `nodes[].id` | string | 节点唯一标识 |
+| `nodes[].types` | array[string] | 节点类型标签列表 |
+| `nodes[].name` | string \| null | 节点名称 |
+| `nodes[].properties` | object \| null | 节点属性对象，`include_properties=false` 时为 `null` |
+| `edges` | array[object] | 边列表 |
+| `edges[].id` | string | 边唯一标识 |
+| `edges[].type` | string | 边类型 |
+| `edges[].source` | string | 源节点 ID |
+| `edges[].target` | string | 目标节点 ID |
+| `edges[].properties` | object \| null | 边属性对象，`include_properties=false` 时为 `null` |
+| `truncated` | boolean | 是否因限制而截断（超出 `limit_nodes` 或 `limit_edges` 时为 `true`） |
+
+**错误响应**:
+
+- **404 Not Found**: 当前没有可查询的已完成版本
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "NO_READY_VERSION",
+      "message": "当前没有可查询的已完成版本"
+    }
+  }
+  ```
+
+**查询模式说明**:
+- `q` 非空：关键词查询模式，搜索名称包含关键词的节点及其关联子图
+- `q` 为空或不传：全量查询模式，返回全量图谱数据
+
+---
+
+### 7. 图谱统计
+
+获取知识图谱的统计信息。
+
+**接口地址**: `GET /kg/stats`
+
+**请求参数**: 无
+
+**响应示例** (200 OK):
+
+```json
+{
+  "success": true,
+  "data": {
+    "version": "1725123456789",
+    "entity_count": 1250,
+    "relation_count": 3420,
+    "node_type_count": 8
+  },
+  "error": null
+}
+```
+
+**响应字段说明**:
+
+| 字段名 | 类型 | 说明 |
+|--------|------|------|
+| `version` | string | 查询所基于的版本号（`latest_ready_version`） |
+| `entity_count` | integer | 实体（节点）总数 |
+| `relation_count` | integer | 关系（边）总数 |
+| `node_type_count` | integer | 不同的节点类型（`entity_label`）数量 |
+
+**错误响应**:
+
+- **404 Not Found**: 当前没有可查询的已完成版本
+  ```json
+  {
+    "success": false,
+    "data": null,
+    "error": {
+      "code": "NO_READY_VERSION",
+      "message": "当前没有可查询的已完成版本"
+    }
+  }
+  ```
+
+---
+
+## 错误码说明
+
+| 错误码 | HTTP 状态码 | 说明 |
+|--------|------------|------|
+| `TASK_RUNNING` | 409 | 当前有任务进行中，无法重复触发 |
+| `NO_BASE_VERSION` | 400 | 没有基线版本，需先执行全量构建 |
+| `NO_READY_VERSION` | 404 | 当前没有可查询的已完成版本 |
+| `INVALID_GRAPH_NAME` | 400 | 无效的图谱名称 |
+| `INTERNAL_ERROR` | 500 | 服务器内部错误 |
+
+---
+
+## 注意事项
+
+1. **任务并发**: 系统不支持并发执行多个构建/更新任务。在任务进行中（`BUILDING` 或 `UPDATING`）时，再次触发会返回 `409 Conflict`。
+
+2. **查询一致性**: 所有查询接口均基于 `latest_ready_version`，即使有新版本正在构建/更新，查询仍返回上一版数据，确保数据一致性。
+
+3. **增量更新前置条件**: 执行增量更新前，必须先完成至少一次全量构建，否则返回 `400 Bad Request`。
+
+4. **异步任务**: 构建和更新任务在后台异步执行，可通过 `/kg/status` 接口查询任务进度和状态。
+

@@ -65,4 +65,58 @@ task:
 
 logging:
   level: "INFO"
+  silence_http_requests: true
 
+deps:
+  # 可选：本地联调时优先使用仓库内 itext2kg（避免误用 site-packages 旧版本）
+  local_itext2kg_path: "../itext2kg"
+
+output:
+  language: zh
+  # source: 实体名尽量保持原文；normalized: 允许轻度规范化
+  entity_name_mode: source
+  # source: 关系名尽量来自原文表达（中文动词/动宾短语）；en_snake: 英文 snake_case
+  relation_name_mode: source
+  # 当模型未给出关系名或给出空白时的兜底关系名
+  relation_fallback_name: related_to
+
+ontology:
+  entity_label:
+    allowlist:
+      - person
+      - organization
+      - event
+      - field
+      - model
+      - location
+      - method
+      - concept
+      - unknown
+    aliases:
+      人: person
+      人物: person
+      组织: organization
+      公司: organization
+      事件: event
+      领域: field
+      模型: model
+      技术: method
+      方法: method
+      概念: concept
+      地点: location
+      unknown: unknown
+    unknown_label: unknown
+    drop_unknown: false
+
+atom:
+  ent_threshold: 0.9
+  rel_threshold: 0.9
+  entity_name_weight: 0.8
+  entity_label_weight: 0.2
+  max_workers: 8
+  debug:
+    log_empty_relation_name: false
+    relation_name_sample_size: 5
+  matching:
+    require_same_entity_label: true
+    rename_relationship_by_embedding: false

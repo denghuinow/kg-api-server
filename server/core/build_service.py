@@ -136,6 +136,16 @@ observation_date: {obs_timestamp}
             rename_relationship_by_embedding = bool(
                 matching_cfg.get("rename_relationship_by_embedding", relation_name_mode != "source")
             )
+            ontology_cfg = self.cfg.raw.get("ontology") or {}
+            entity_label_cfg = (ontology_cfg.get("entity_label") or {}) if isinstance(ontology_cfg, dict) else {}
+            entity_label_allowlist = entity_label_cfg.get("allowlist")
+            entity_label_aliases = entity_label_cfg.get("aliases") or {}
+            unknown_entity_label = str(entity_label_cfg.get("unknown_label", "unknown"))
+            drop_unknown_entity_label = bool(entity_label_cfg.get("drop_unknown", False))
+            debug_cfg = atom_cfg.get("debug") or {}
+            debug_log_empty_relation_name = bool(debug_cfg.get("log_empty_relation_name", False))
+            debug_relation_name_sample_size = int(debug_cfg.get("relation_name_sample_size", 5))
+            relation_fallback_name = str(output_cfg.get("relation_fallback_name", "related_to"))
 
             self.state_store.update_task_progress(task_id, 45, "开始构建知识图谱")
             kg = await self.atom.build_graph(
@@ -152,6 +162,13 @@ observation_date: {obs_timestamp}
                 relation_name_mode=relation_name_mode,
                 require_same_entity_label=require_same_entity_label,
                 rename_relationship_by_embedding=rename_relationship_by_embedding,
+                entity_label_allowlist=entity_label_allowlist if isinstance(entity_label_allowlist, list) else None,
+                entity_label_aliases=entity_label_aliases if isinstance(entity_label_aliases, dict) else None,
+                unknown_entity_label=unknown_entity_label,
+                drop_unknown_entity_label=drop_unknown_entity_label,
+                debug_log_empty_relation_name=debug_log_empty_relation_name,
+                debug_relation_name_sample_size=debug_relation_name_sample_size,
+                relation_fallback_name=relation_fallback_name,
             )
             self.state_store.update_task_progress(task_id, 75, f"构建完成：{len(kg.entities)} 节点，{len(kg.relationships)} 边")
 
@@ -200,6 +217,16 @@ observation_date: {obs_timestamp}
             rename_relationship_by_embedding = bool(
                 matching_cfg.get("rename_relationship_by_embedding", relation_name_mode != "source")
             )
+            ontology_cfg = self.cfg.raw.get("ontology") or {}
+            entity_label_cfg = (ontology_cfg.get("entity_label") or {}) if isinstance(ontology_cfg, dict) else {}
+            entity_label_allowlist = entity_label_cfg.get("allowlist")
+            entity_label_aliases = entity_label_cfg.get("aliases") or {}
+            unknown_entity_label = str(entity_label_cfg.get("unknown_label", "unknown"))
+            drop_unknown_entity_label = bool(entity_label_cfg.get("drop_unknown", False))
+            debug_cfg = atom_cfg.get("debug") or {}
+            debug_log_empty_relation_name = bool(debug_cfg.get("log_empty_relation_name", False))
+            debug_relation_name_sample_size = int(debug_cfg.get("relation_name_sample_size", 5))
+            relation_fallback_name = str(output_cfg.get("relation_fallback_name", "related_to"))
 
             self.state_store.update_task_progress(task_id, 55, "开始构建新版本图谱")
             kg = await self.atom.build_graph(
@@ -216,6 +243,13 @@ observation_date: {obs_timestamp}
                 relation_name_mode=relation_name_mode,
                 require_same_entity_label=require_same_entity_label,
                 rename_relationship_by_embedding=rename_relationship_by_embedding,
+                entity_label_allowlist=entity_label_allowlist if isinstance(entity_label_allowlist, list) else None,
+                entity_label_aliases=entity_label_aliases if isinstance(entity_label_aliases, dict) else None,
+                unknown_entity_label=unknown_entity_label,
+                drop_unknown_entity_label=drop_unknown_entity_label,
+                debug_log_empty_relation_name=debug_log_empty_relation_name,
+                debug_relation_name_sample_size=debug_relation_name_sample_size,
+                relation_fallback_name=relation_fallback_name,
             )
             self.state_store.update_task_progress(task_id, 78, f"增量构建完成：{len(kg.entities)} 节点，{len(kg.relationships)} 边")
 
@@ -229,4 +263,3 @@ observation_date: {obs_timestamp}
         except Exception as e:
             logger.exception("增量更新失败 base=%s version=%s", base_version, version)
             self.state_store.mark_task_failed(task_id, str(e))
-

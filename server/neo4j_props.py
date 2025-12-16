@@ -11,8 +11,13 @@ def props_dict(obj: Any) -> dict[str, Any]:
         return obj
 
     props = getattr(obj, "_properties", None)
-    if isinstance(props, dict):
-        return dict(props)
+    # Neo4j Node/Relationship store properties in `_properties`, which may be a dict
+    # or another Mapping implementation depending on driver/version.
+    if isinstance(props, Mapping):
+        try:
+            return dict(props)
+        except Exception:
+            return {}
 
     if isinstance(obj, Mapping):
         try:
@@ -31,4 +36,3 @@ def props_dict(obj: Any) -> dict[str, Any]:
         return {k: obj[k] for k in obj}
     except Exception:
         return {}
-
