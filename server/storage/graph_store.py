@@ -264,7 +264,7 @@ ORDER BY t
             if include_properties:
                 cleaned = {k: v for k, v in props.items() if k not in {"embeddings", "kg_version", "entity_label", "name"}}
             else:
-                cleaned = None
+                cleaned = {}
             nodes[node_id] = {
                 "id": node_id,
                 "types": [entity_label] if entity_label else [],
@@ -292,7 +292,7 @@ ORDER BY t
             if include_properties:
                 cleaned = {k: v for k, v in rp.items() if k not in {"embeddings", "kg_version", "predicate"}}
             else:
-                cleaned = None
+                cleaned = {}
             edges[edge_id] = {
                 "id": edge_id,
                 "type": predicate,
