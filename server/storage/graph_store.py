@@ -255,28 +255,30 @@ ORDER BY t
         nodes: Dict[str, Dict[str, Any]] = {}
         edges: Dict[str, Dict[str, Any]] = {}
 
-        def add_node(n: Any) -> None:
+        def add_node(n: Any, element_id: str) -> str:
             props = props_dict(n)
-            node_id = f"{props.get('entity_label','')}:{props.get('name','')}"
+            node_id = element_id
             if node_id in nodes:
-                return
+                return node_id
+            entity_label = str(props.get("entity_label", "") or "")
             if include_properties:
-                cleaned = {k: v for k, v in props.items() if k not in {"embeddings", "kg_version"}}
+                cleaned = {k: v for k, v in props.items() if k not in {"embeddings", "kg_version", "entity_label", "name"}}
             else:
                 cleaned = None
             nodes[node_id] = {
                 "id": node_id,
-                "types": ["Entity", str(props.get("entity_label", "") or "")],
+                "types": [entity_label] if entity_label else [],
                 "name": str(props.get("name", "") or "") or None,
                 "properties": cleaned,
             }
+            return node_id
 
-        def add_edge(s: Any, r: Any, t: Any) -> None:
+        def add_edge(s: Any, r: Any, t: Any, s_element_id: str, r_element_id: str, t_element_id: str) -> None:
             sp = props_dict(s)
             tp = props_dict(t)
             rp = props_dict(r)
-            source_id = f"{sp.get('entity_label','')}:{sp.get('name','')}"
-            target_id = f"{tp.get('entity_label','')}:{tp.get('name','')}"
+            source_id = s_element_id
+            target_id = t_element_id
             predicate = rp.get("predicate")
             if not predicate:
                 # Fallback: try to get type from r if it's an object, otherwise use default
@@ -284,11 +286,11 @@ ORDER BY t
                 if not predicate:
                     predicate = "related_to"
             predicate = str(predicate)
-            edge_id = f"{source_id}->{predicate}->{target_id}"
+            edge_id = r_element_id
             if edge_id in edges:
                 return
             if include_properties:
-                cleaned = {k: v for k, v in rp.items() if k not in {"embeddings", "kg_version"}}
+                cleaned = {k: v for k, v in rp.items() if k not in {"embeddings", "kg_version", "predicate"}}
             else:
                 cleaned = None
             edges[edge_id] = {
@@ -303,7 +305,7 @@ ORDER BY t
             seed_query = """
 MATCH (s:Entity {kg_version: $v})
 WHERE toLower(s.name) CONTAINS toLower($q)
-RETURN s
+RETURN s, elementId(s) AS s_id
 LIMIT $seed_limit
 """
             seed_rows = self.client.run(
@@ -311,20 +313,21 @@ LIMIT $seed_limit
                 {"v": version, "q": q, "seed_limit": int(max(1, max_seed_nodes))},
             )
             for row in seed_rows:
-                add_node(row["s"])
+                add_node(row["s"], row["s_id"])
 
             if depth > 0 and limit_edges > 0 and seed_rows:
                 expand_query = """
 MATCH (s:Entity {kg_version: $v})
 WHERE toLower(s.name) CONTAINS toLower($q)
 WITH s LIMIT $seed_limit
-MATCH (s)-[rels:REL*1..$depth]-(n:Entity {kg_version: $v})
+MATCH path = (s)-[rels:REL*1..$depth]-(n:Entity {kg_version: $v})
 WHERE ALL(r IN rels WHERE r.kg_version = $v)
-UNWIND rels AS r
-WITH DISTINCT r
+UNWIND relationships(path) AS r
+WITH DISTINCT r, elementId(r) AS r_id
 LIMIT $limit_edges
 MATCH (a)-[r]->(b)
-RETURN a AS s, properties(r) AS rp, b AS t
+WHERE a.kg_version = $v AND b.kg_version = $v AND elementId(r) = r_id
+RETURN a AS s, elementId(a) AS s_id, properties(r) AS rp, r_id AS r_id, b AS t, elementId(b) AS t_id
 """
                 rows = self.client.run(
                     expand_query,
@@ -337,30 +340,30 @@ RETURN a AS s, properties(r) AS rp, b AS t
                     },
                 )
                 for row in rows:
-                    add_node(row["s"])
-                    add_node(row["t"])
-                    add_edge(row["s"], row["rp"], row["t"])
+                    add_node(row["s"], row["s_id"])
+                    add_node(row["t"], row["t_id"])
+                    add_edge(row["s"], row["rp"], row["t"], row["s_id"], row["r_id"], row["t_id"])
         else:
             edge_query = """
 MATCH (s:Entity {kg_version: $v})-[r:REL {kg_version: $v}]->(t:Entity {kg_version: $v})
-RETURN s, properties(r) AS rp, t
+RETURN s, elementId(s) AS s_id, properties(r) AS rp, elementId(r) AS r_id, t, elementId(t) AS t_id
 LIMIT $limit_edges
 """
             if limit_edges > 0:
                 rows = self.client.run(edge_query, {"v": version, "limit_edges": limit_edges_plus})
                 for row in rows:
-                    add_node(row["s"])
-                    add_node(row["t"])
-                    add_edge(row["s"], row["rp"], row["t"])
+                    add_node(row["s"], row["s_id"])
+                    add_node(row["t"], row["t_id"])
+                    add_edge(row["s"], row["rp"], row["t"], row["s_id"], row["r_id"], row["t_id"])
 
             if not nodes:
                 node_query = """
 MATCH (e:Entity {kg_version: $v})
-RETURN e
+RETURN e, elementId(e) AS e_id
 LIMIT $limit_nodes
 """
                 for row in self.client.run(node_query, {"v": version, "limit_nodes": limit_nodes_plus}):
-                    add_node(row["e"])
+                    add_node(row["e"], row["e_id"])
 
         truncated = False
         if len(nodes) > limit_nodes:
