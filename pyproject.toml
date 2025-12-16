@@ -13,7 +13,7 @@ dependencies = [
   "numpy>=1.24",
   "tiktoken>=0.7.0",
   "python-dateutil>=2.9",
-  "itext2kg>=1.0.0",
+  "itext2kg>=1.1.1",
   "psycopg2-binary>=2.9.0"
 ]
 
