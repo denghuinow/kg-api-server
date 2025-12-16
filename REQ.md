@@ -227,7 +227,7 @@
   - `limit_nodes?: int`（默认来自配置）
   - `limit_edges?: int`（默认来自配置）
   - `depth?: int`（可选，子图扩展深度，默认 1~2）
-  - `include_properties?: bool`（默认 true）
+  - `include_properties?: bool`（默认 false）
 - 行为：
   - 若 `latest_ready_version` 为空，返回 `404`（表示当前没有可查询的已完成版本）
   - 仅基于 `latest_ready_version` 查询

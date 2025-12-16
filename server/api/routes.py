@@ -244,7 +244,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         limit_nodes: Optional[int] = Query(None, ge=1),
         limit_edges: Optional[int] = Query(None, ge=0),
         depth: Optional[int] = Query(None, ge=0),
-        include_properties: bool = Query(True),
+        include_properties: bool = Query(False),
     ) -> JSONResponse:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
