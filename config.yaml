@@ -39,43 +39,21 @@ output:
   relation_fallback_name: related_to
 
 ontology:
-  entity_label:
-    # 限定 Entity.label 的取值，避免出现中文label被清洗成“_”或把领域术语当作label
-    # 说明：会被统一转为小写后参与校验/入库
-    allowlist:
-      - person
-      - organization
-      - event
-      - field
-      - model
-      - location
-      - method
-      - concept
-      - unknown
-    # 将常见中文/变体映射到英文粗粒度类别（key不区分大小写）
-    aliases:
-      人: person
-      人物: person
-      个人: person
-      组织: organization
-      机构: organization
-      公司: organization
-      企业: organization
-      事件: event
-      时间: event
-      领域: field
-      学科: field
-      方向: field
-      模型: model
-      技术: method
-      方法: method
-      概念: concept
-      地点: location
-      地区: location
-      unknown: unknown
+  auto_entity_label:
+    # 使用大模型对所有实体统一归类；允许“自由发明新类型”
+    enabled: true
+    allow_new_labels: true
+    # 归类结果必须输出英文小写 snake_case；无法判断时使用 unknown_label
     unknown_label: unknown
     # 若为 true，则 start/end 任一端 label=unknown 的关系会被丢弃（更严格、更少误合并）
     drop_unknown: false
+    # 额外提示：新增 team 类型
+    hints:
+      - team
+    # 给模型的上下文（每个实体最多附带多少条关联 atomic facts）
+    max_facts_per_entity: 6
+    # 每批次最多处理多少个实体（避免单次请求过大）
+    batch_size: 80
 
 atom:
   ent_threshold: 0.92

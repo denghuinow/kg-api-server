@@ -81,32 +81,15 @@ output:
   relation_fallback_name: related_to
 
 ontology:
-  entity_label:
-    allowlist:
-      - person
-      - organization
-      - event
-      - field
-      - model
-      - location
-      - method
-      - concept
-      - unknown
-    aliases:
-      人: person
-      人物: person
-      组织: organization
-      公司: organization
-      事件: event
-      领域: field
-      模型: model
-      技术: method
-      方法: method
-      概念: concept
-      地点: location
-      unknown: unknown
+  auto_entity_label:
+    enabled: true
+    allow_new_labels: true
     unknown_label: unknown
     drop_unknown: false
+    hints:
+      - team
+    max_facts_per_entity: 6
+    batch_size: 80
 
 atom:
   ent_threshold: 0.9

@@ -12,6 +12,7 @@ from itext2kg.atom.models.schemas import AtomicFact
 
 from ..storage import StateStore, TaskConflictError, VersionedGraphStore
 from ..utils import AppConfig, Hooks
+from .entity_label_classifier import auto_classify_entity_labels
 
 
 logger = logging.getLogger(__name__)
@@ -137,11 +138,18 @@ observation_date: {obs_timestamp}
                 matching_cfg.get("rename_relationship_by_embedding", relation_name_mode != "source")
             )
             ontology_cfg = self.cfg.raw.get("ontology") or {}
-            entity_label_cfg = (ontology_cfg.get("entity_label") or {}) if isinstance(ontology_cfg, dict) else {}
-            entity_label_allowlist = entity_label_cfg.get("allowlist")
-            entity_label_aliases = entity_label_cfg.get("aliases") or {}
-            unknown_entity_label = str(entity_label_cfg.get("unknown_label", "unknown"))
-            drop_unknown_entity_label = bool(entity_label_cfg.get("drop_unknown", False))
+            auto_label_cfg = (ontology_cfg.get("auto_entity_label") or {}) if isinstance(ontology_cfg, dict) else {}
+            auto_label_enabled = bool(auto_label_cfg.get("enabled", False))
+            allow_new_entity_labels = bool(auto_label_cfg.get("allow_new_labels", True))
+            unknown_entity_label = str(auto_label_cfg.get("unknown_label", "unknown"))
+            drop_unknown_after_classify = bool(auto_label_cfg.get("drop_unknown", False))
+            auto_label_hints = auto_label_cfg.get("hints") or []
+            auto_label_max_facts_per_entity = int(auto_label_cfg.get("max_facts_per_entity", 6))
+            auto_label_batch_size = int(auto_label_cfg.get("batch_size", 80))
+
+            entity_label_allowlist = None
+            entity_label_aliases = None
+            drop_unknown_entity_label = False
             debug_cfg = atom_cfg.get("debug") or {}
             debug_log_empty_relation_name = bool(debug_cfg.get("log_empty_relation_name", False))
             debug_relation_name_sample_size = int(debug_cfg.get("relation_name_sample_size", 5))
@@ -171,6 +179,21 @@ observation_date: {obs_timestamp}
                 relation_fallback_name=relation_fallback_name,
             )
             self.state_store.update_task_progress(task_id, 75, f"构建完成：{len(kg.entities)} 节点，{len(kg.relationships)} 边")
+
+            if auto_label_enabled:
+                self.state_store.update_task_progress(task_id, 80, "开始实体类型自动归类")
+                await auto_classify_entity_labels(
+                    kg=kg,
+                    parser=self.parser,
+                    enabled=True,
+                    allow_new_labels=allow_new_entity_labels,
+                    unknown_label=unknown_entity_label,
+                    hints=auto_label_hints if isinstance(auto_label_hints, list) else None,
+                    max_facts_per_entity=auto_label_max_facts_per_entity,
+                    batch_size=auto_label_batch_size,
+                    drop_unknown=drop_unknown_after_classify,
+                )
+                self.state_store.update_task_progress(task_id, 83, "实体类型自动归类完成")
 
             self.state_store.update_task_progress(task_id, 85, "写入 Neo4j")
             await asyncio.to_thread(self.graph_store.write_knowledge_graph, version, kg)
@@ -218,11 +241,18 @@ observation_date: {obs_timestamp}
                 matching_cfg.get("rename_relationship_by_embedding", relation_name_mode != "source")
             )
             ontology_cfg = self.cfg.raw.get("ontology") or {}
-            entity_label_cfg = (ontology_cfg.get("entity_label") or {}) if isinstance(ontology_cfg, dict) else {}
-            entity_label_allowlist = entity_label_cfg.get("allowlist")
-            entity_label_aliases = entity_label_cfg.get("aliases") or {}
-            unknown_entity_label = str(entity_label_cfg.get("unknown_label", "unknown"))
-            drop_unknown_entity_label = bool(entity_label_cfg.get("drop_unknown", False))
+            auto_label_cfg = (ontology_cfg.get("auto_entity_label") or {}) if isinstance(ontology_cfg, dict) else {}
+            auto_label_enabled = bool(auto_label_cfg.get("enabled", False))
+            allow_new_entity_labels = bool(auto_label_cfg.get("allow_new_labels", True))
+            unknown_entity_label = str(auto_label_cfg.get("unknown_label", "unknown"))
+            drop_unknown_after_classify = bool(auto_label_cfg.get("drop_unknown", False))
+            auto_label_hints = auto_label_cfg.get("hints") or []
+            auto_label_max_facts_per_entity = int(auto_label_cfg.get("max_facts_per_entity", 6))
+            auto_label_batch_size = int(auto_label_cfg.get("batch_size", 80))
+
+            entity_label_allowlist = None
+            entity_label_aliases = None
+            drop_unknown_entity_label = False
             debug_cfg = atom_cfg.get("debug") or {}
             debug_log_empty_relation_name = bool(debug_cfg.get("log_empty_relation_name", False))
             debug_relation_name_sample_size = int(debug_cfg.get("relation_name_sample_size", 5))
@@ -252,6 +282,21 @@ observation_date: {obs_timestamp}
                 relation_fallback_name=relation_fallback_name,
             )
             self.state_store.update_task_progress(task_id, 78, f"增量构建完成：{len(kg.entities)} 节点，{len(kg.relationships)} 边")
+
+            if auto_label_enabled:
+                self.state_store.update_task_progress(task_id, 82, "开始实体类型自动归类")
+                await auto_classify_entity_labels(
+                    kg=kg,
+                    parser=self.parser,
+                    enabled=True,
+                    allow_new_labels=allow_new_entity_labels,
+                    unknown_label=unknown_entity_label,
+                    hints=auto_label_hints if isinstance(auto_label_hints, list) else None,
+                    max_facts_per_entity=auto_label_max_facts_per_entity,
+                    batch_size=auto_label_batch_size,
+                    drop_unknown=drop_unknown_after_classify,
+                )
+                self.state_store.update_task_progress(task_id, 85, "实体类型自动归类完成")
 
             self.state_store.update_task_progress(task_id, 88, "写入 Neo4j")
             await asyncio.to_thread(self.graph_store.write_knowledge_graph, version, kg)
