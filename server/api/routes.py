@@ -241,6 +241,8 @@ def create_app(cfg: AppConfig) -> FastAPI:
     @app.get("/kg/query", dependencies=[Depends(bearer_token_dependency)])
     async def kg_query(
         q: Optional[str] = Query(None),
+        entity_types: Optional[str] = Query(None, description="实体类型筛选，支持多选，逗号分隔"),
+        relation_types: Optional[str] = Query(None, description="关系类型筛选，支持多选，逗号分隔"),
         limit_nodes: Optional[int] = Query(None, ge=1),
         limit_edges: Optional[int] = Query(None, ge=0),
         depth: Optional[int] = Query(None, ge=0),
@@ -251,9 +253,18 @@ def create_app(cfg: AppConfig) -> FastAPI:
         if not state.latest_ready_version:
             return _err(404, "NO_READY_VERSION", "当前没有可查询的已完成版本")
 
+        def _split_csv(v: Optional[str]) -> Optional[list[str]]:
+            if not v:
+                return None
+            items = [s.strip() for s in str(v).split(",")]
+            items = [s for s in items if s]
+            return items or None
+
         nodes, edges, truncated = res.graph_store.query_graph(
             version=state.latest_ready_version,
             q=q,
+            entity_types=_split_csv(entity_types),
+            relation_types=_split_csv(relation_types),
             limit_nodes=limit_nodes or res.cfg.query.default_limit_nodes,
             limit_edges=limit_edges or res.cfg.query.default_limit_edges,
             depth=depth if depth is not None else res.cfg.query.default_depth,
@@ -280,4 +291,3 @@ def create_app(cfg: AppConfig) -> FastAPI:
         return _ok(data.model_dump(mode="json"))
 
     return app
-

@@ -43,13 +43,13 @@ ontology:
     # 使用大模型对所有实体统一归类；允许“自由发明新类型”
     enabled: true
     allow_new_labels: true
-    # 归类结果必须输出英文小写 snake_case；无法判断时使用 unknown_label
+    # 归类结果必须输出中文通用粗粒度类别；无法判断时使用 unknown_label
     unknown_label: unknown
     # 若为 true，则 start/end 任一端 label=unknown 的关系会被丢弃（更严格、更少误合并）
     drop_unknown: false
-    # 额外提示：新增 team 类型
+    # 额外提示：新增“团队”等类型
     hints:
-      - team
+      - 团队
     # 给模型的上下文（每个实体最多附带多少条关联 atomic facts）
     max_facts_per_entity: 6
     # 每批次最多处理多少个实体（避免单次请求过大）

@@ -21,6 +21,14 @@ COPY kg-api-server/server ./server
 # 安装依赖
 RUN uv sync --frozen
 
+# 创建 tiktoken 缓存目录并预下载编码文件
+# 设置环境变量后尝试下载，失败时仅记录警告（构建时网络可能不可用）
+RUN mkdir -p /app/data/tiktoken_cache && \
+    TIKTOKEN_CACHE_DIR=/app/data/tiktoken_cache uv run python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" 2>&1 || echo "警告: tiktoken 编码文件下载失败，将在运行时重试"
+
+# 设置 tiktoken 缓存目录环境变量
+ENV TIKTOKEN_CACHE_DIR=/app/data/tiktoken_cache
+
 # 复制配置文件（如果存在）
 COPY kg-api-server/config.yaml* ./
 

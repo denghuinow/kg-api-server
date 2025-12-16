@@ -13,24 +13,24 @@ from itext2kg.atom.models import Entity, KnowledgeGraph, Relationship
 logger = logging.getLogger(__name__)
 
 
-_LABEL_SAFE_RE = re.compile(r"[^a-z0-9_]+")
-
-
 class EntityLabelPrediction(BaseModel):
-    label: str = Field(description="实体类型（英文小写 snake_case，可自由发明新类型）")
+    label: str = Field(description="实体类型（中文通用粗粒度类别，如 人物/组织/公司/团队/事件/概念/领域/模型 等）")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="置信度，0~1")
 
 
 def normalize_entity_label(raw: str, *, unknown_label: str) -> str:
-    s = str(raw or "").strip().lower()
-    s = s.replace("-", "_").replace(" ", "_")
-    s = _LABEL_SAFE_RE.sub("_", s)
-    s = re.sub(r"_+", "_", s).strip("_")
+    s = str(raw or "").strip()
     if not s:
         return unknown_label
-    if s[0].isdigit():
-        s = f"t_{s}"
-    return s[:64]
+    # 统一去掉空白与常见分隔符，避免同一类型出现多个写法（如“人 物 / 人物 / 人-物”）
+    s = re.sub(r"\s+", "", s)
+    s = s.replace("-", "").replace("_", "")
+    # 去掉常见标点（保留中文/字母/数字等）
+    s = re.sub(r"""[()（）\[\]{}【】<>《》"'“”‘’.,，。;；:：!?！？/\\|·•]""", "", s)
+    s = s.strip()
+    if not s:
+        return unknown_label
+    return s[:32]
 
 
 def _chunks(items: List[Any], size: int) -> Iterable[List[Any]]:
@@ -75,9 +75,9 @@ def _build_system_query(*, hints: List[str], allow_new_labels: bool, unknown_lab
 目标：为每个实体输出一个类型 label，用于知识图谱的 Entity.entity_label。
 
 要求：
-- {allow}自由发明新类型，但 label 必须是英文小写 snake_case（只允许 a-z/0-9/下划线），尽量简短明确。
+- {allow}自由发明新类型，但 label 必须是中文、通用的粗粒度类别（如 人物/组织/公司/团队/事件/概念/领域/模型/方法/设备 等），尽量简短明确。
 - {extra_hint}
-- 遇到“团队/研究团队/项目组/课题组/某某团队/他的团队/他们的团队/该团队”等优先归为 team。
+- 遇到“团队/研究团队/项目组/课题组/某某团队/他的团队/他们的团队/该团队”等优先归为 团队。
 - 如果信息不足无法判断，返回 {unknown_label}。
 
 只输出结构化结果。
@@ -100,8 +100,8 @@ async def auto_classify_entity_labels(
         return
 
     hints_list = [str(x).strip() for x in (hints or []) if str(x).strip()]
-    if "team" not in {h.lower() for h in hints_list}:
-        hints_list.append("team")
+    if "团队" not in set(hints_list):
+        hints_list.append("团队")
 
     facts_by_key = _collect_facts_by_entity_key(kg, max_facts_per_entity=max(0, int(max_facts_per_entity)))
 

@@ -92,7 +92,7 @@ ontology:
     unknown_label: unknown
     drop_unknown: false
     hints:
-      - team
+      - 团队
     max_facts_per_entity: 6
     batch_size: 80
 

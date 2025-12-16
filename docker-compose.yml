@@ -6,13 +6,16 @@ services:
       context: ..
       dockerfile: kg-api-server/Dockerfile
     container_name: kg-api-server
-    image: denghui/kg-api-server:v0.1.4
+    image: denghui/kg-api-server:v0.1.5
     ports:
       - "8021:8021"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
+      # 挂载 tiktoken 缓存目录（可选，如果本地已有缓存）
+      - ./data/tiktoken_cache:/app/data/tiktoken_cache
     environment:
       - PYTHONUNBUFFERED=1
+      - TIKTOKEN_CACHE_DIR=/app/data/tiktoken_cache
       # 可选：通过环境变量覆盖配置
       # - LLM_API_KEY=${LLM_API_KEY}
       # - EMBEDDINGS_API_KEY=${EMBEDDINGS_API_KEY}

@@ -241,6 +241,8 @@ ORDER BY t
         self,
         version: str,
         q: Optional[str],
+        entity_types: Optional[List[str]],
+        relation_types: Optional[List[str]],
         limit_nodes: int,
         limit_edges: int,
         depth: int,
@@ -251,6 +253,9 @@ ORDER BY t
         limit_nodes_plus = int(max(1, limit_nodes)) + 1
         limit_edges_plus = int(max(0, limit_edges)) + 1
         depth = int(max(0, depth))
+
+        entity_types = [str(x).strip() for x in (entity_types or []) if str(x).strip()]
+        relation_types = [str(x).strip() for x in (relation_types or []) if str(x).strip()]
 
         nodes: Dict[str, Dict[str, Any]] = {}
         edges: Dict[str, Dict[str, Any]] = {}
@@ -305,12 +310,18 @@ ORDER BY t
             seed_query = """
 MATCH (s:Entity {kg_version: $v})
 WHERE toLower(s.name) CONTAINS toLower($q)
+  AND (size($entity_types) = 0 OR s.entity_label IN $entity_types)
 RETURN s, elementId(s) AS s_id
 LIMIT $seed_limit
 """
             seed_rows = self.client.run(
                 seed_query,
-                {"v": version, "q": q, "seed_limit": int(max(1, max_seed_nodes))},
+                {
+                    "v": version,
+                    "q": q,
+                    "seed_limit": int(max(1, max_seed_nodes)),
+                    "entity_types": entity_types,
+                },
             )
             for row in seed_rows:
                 add_node(row["s"], row["s_id"])
@@ -319,14 +330,19 @@ LIMIT $seed_limit
                 expand_query = """
 MATCH (s:Entity {kg_version: $v})
 WHERE toLower(s.name) CONTAINS toLower($q)
+  AND (size($entity_types) = 0 OR s.entity_label IN $entity_types)
 WITH s LIMIT $seed_limit
 MATCH path = (s)-[rels:REL*1..$depth]-(n:Entity {kg_version: $v})
-WHERE ALL(r IN rels WHERE r.kg_version = $v)
+WHERE ALL(r IN rels WHERE r.kg_version = $v AND (size($relation_types) = 0 OR r.predicate IN $relation_types))
+  AND ALL(x IN nodes(path) WHERE x.kg_version = $v AND (size($entity_types) = 0 OR x.entity_label IN $entity_types))
 UNWIND relationships(path) AS r
 WITH DISTINCT r, elementId(r) AS r_id
 LIMIT $limit_edges
 MATCH (a)-[r]->(b)
 WHERE a.kg_version = $v AND b.kg_version = $v AND elementId(r) = r_id
+  AND (size($entity_types) = 0 OR a.entity_label IN $entity_types)
+  AND (size($entity_types) = 0 OR b.entity_label IN $entity_types)
+  AND (size($relation_types) = 0 OR r.predicate IN $relation_types)
 RETURN a AS s, elementId(a) AS s_id, properties(r) AS rp, r_id AS r_id, b AS t, elementId(b) AS t_id
 """
                 rows = self.client.run(
@@ -337,6 +353,8 @@ RETURN a AS s, elementId(a) AS s_id, properties(r) AS rp, r_id AS r_id, b AS t, 
                         "seed_limit": int(max(1, max_seed_nodes)),
                         "depth": depth,
                         "limit_edges": limit_edges_plus,
+                        "entity_types": entity_types,
+                        "relation_types": relation_types,
                     },
                 )
                 for row in rows:
@@ -346,11 +364,22 @@ RETURN a AS s, elementId(a) AS s_id, properties(r) AS rp, r_id AS r_id, b AS t, 
         else:
             edge_query = """
 MATCH (s:Entity {kg_version: $v})-[r:REL {kg_version: $v}]->(t:Entity {kg_version: $v})
+WHERE (size($entity_types) = 0 OR s.entity_label IN $entity_types)
+  AND (size($entity_types) = 0 OR t.entity_label IN $entity_types)
+  AND (size($relation_types) = 0 OR r.predicate IN $relation_types)
 RETURN s, elementId(s) AS s_id, properties(r) AS rp, elementId(r) AS r_id, t, elementId(t) AS t_id
 LIMIT $limit_edges
 """
             if limit_edges > 0:
-                rows = self.client.run(edge_query, {"v": version, "limit_edges": limit_edges_plus})
+                rows = self.client.run(
+                    edge_query,
+                    {
+                        "v": version,
+                        "limit_edges": limit_edges_plus,
+                        "entity_types": entity_types,
+                        "relation_types": relation_types,
+                    },
+                )
                 for row in rows:
                     add_node(row["s"], row["s_id"])
                     add_node(row["t"], row["t_id"])
@@ -359,10 +388,18 @@ LIMIT $limit_edges
             if not nodes:
                 node_query = """
 MATCH (e:Entity {kg_version: $v})
+WHERE (size($entity_types) = 0 OR e.entity_label IN $entity_types)
 RETURN e, elementId(e) AS e_id
 LIMIT $limit_nodes
 """
-                for row in self.client.run(node_query, {"v": version, "limit_nodes": limit_nodes_plus}):
+                for row in self.client.run(
+                    node_query,
+                    {
+                        "v": version,
+                        "limit_nodes": limit_nodes_plus,
+                        "entity_types": entity_types,
+                    },
+                ):
                     add_node(row["e"], row["e_id"])
 
         truncated = False
