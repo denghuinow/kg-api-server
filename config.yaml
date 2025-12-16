@@ -3,7 +3,7 @@ server:
   host: "0.0.0.0"
   port: 8021
   cors_allow_origins: ["*"]
-
+  api_key: "kg"
 neo4j:
   uri: "neo4j://172.16.15.249:7687"
   username: "neo4j"

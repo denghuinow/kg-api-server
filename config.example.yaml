@@ -3,6 +3,11 @@ server:
   host: "0.0.0.0"
   port: 8021
   cors_allow_origins: ["*"]
+  # API Key 验证（必填）
+  # 所有接口都需要在请求头中提供 Authorization: Bearer <token>
+  # 二选一：api_key 或 api_key_env
+  api_key: "your-api-key-here"
+  # api_key_env: API_KEY  # 可选：从环境变量读取
 
 neo4j:
   uri: "neo4j://127.0.0.1:7687"

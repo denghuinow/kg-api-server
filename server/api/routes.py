@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Security, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from itext2kg.atom import Atom
 
 from ..core import BuildService
@@ -33,6 +34,51 @@ from ..utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Bearer Token 验证
+security = HTTPBearer(auto_error=False)
+
+
+def verify_bearer_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(security),
+    cfg: Optional[AppConfig] = None,
+) -> None:
+    """
+    验证 Bearer Token。强制要求验证，没有或错误将拒绝访问。
+    """
+    if cfg is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="服务器配置错误",
+        )
+
+    if cfg.server.api_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="服务器未配置 API Key",
+        )
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="缺少认证信息，请在请求头中提供 Authorization: Bearer <token>",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    token = credentials.credentials
+    if token != cfg.server.api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的认证令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def get_bearer_token_dependency(cfg: AppConfig):
+    """创建 Bearer Token 验证依赖函数"""
+    async def _verify(credentials: Optional[HTTPAuthorizationCredentials] = Security(security)) -> None:
+        verify_bearer_token(credentials=credentials, cfg=cfg)
+    return _verify
 
 
 def _ok(data: Any) -> JSONResponse:
@@ -98,12 +144,15 @@ def create_app(cfg: AppConfig) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 创建 Bearer Token 验证依赖
+    bearer_token_dependency = get_bearer_token_dependency(cfg)
+
     @app.on_event("shutdown")
     async def _shutdown() -> None:
         res: Resources = app.state.resources
         res.close()
 
-    @app.get("/kg/status")
+    @app.get("/kg/status", dependencies=[Depends(bearer_token_dependency)])
     async def kg_status() -> JSONResponse:
         res: Resources = app.state.resources
         state, current_task = res.state_store.get_state_and_task()
@@ -114,7 +163,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         )
         return _ok(data.model_dump(mode="json"))
 
-    @app.post("/kg/build/full")
+    @app.post("/kg/build/full", dependencies=[Depends(bearer_token_dependency)])
     async def kg_build_full(request: Request) -> JSONResponse:
         res: Resources = app.state.resources
         payload = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
@@ -137,7 +186,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
             logger.exception("触发全量构建失败")
             return _err(500, "INTERNAL_ERROR", "触发全量构建失败", detail=str(e))
 
-    @app.post("/kg/update/incremental")
+    @app.post("/kg/update/incremental", dependencies=[Depends(bearer_token_dependency)])
     async def kg_update_incremental(request: Request) -> JSONResponse:
         res: Resources = app.state.resources
         payload = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
@@ -169,7 +218,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
             logger.exception("触发增量更新失败")
             return _err(500, "INTERNAL_ERROR", "触发增量更新失败", detail=str(e))
 
-    @app.get("/kg/types/entities")
+    @app.get("/kg/types/entities", dependencies=[Depends(bearer_token_dependency)])
     async def kg_types_entities() -> JSONResponse:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
@@ -179,7 +228,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         data = TypesResponse(version=state.latest_ready_version, entity_types=types)
         return _ok(data.model_dump(mode="json"))
 
-    @app.get("/kg/types/relations")
+    @app.get("/kg/types/relations", dependencies=[Depends(bearer_token_dependency)])
     async def kg_types_relations() -> JSONResponse:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
@@ -189,7 +238,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         data = TypesResponse(version=state.latest_ready_version, relation_types=types)
         return _ok(data.model_dump(mode="json"))
 
-    @app.get("/kg/query")
+    @app.get("/kg/query", dependencies=[Depends(bearer_token_dependency)])
     async def kg_query(
         q: Optional[str] = Query(None),
         limit_nodes: Optional[int] = Query(None, ge=1),
@@ -214,7 +263,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         data = QueryResponse(version=state.latest_ready_version, nodes=nodes, edges=edges, truncated=truncated)
         return _ok(data.model_dump(mode="json"))
 
-    @app.get("/kg/stats")
+    @app.get("/kg/stats", dependencies=[Depends(bearer_token_dependency)])
     async def kg_stats() -> JSONResponse:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
@@ -231,3 +280,4 @@ def create_app(cfg: AppConfig) -> FastAPI:
         return _ok(data.model_dump(mode="json"))
 
     return app
+

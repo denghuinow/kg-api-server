@@ -34,6 +34,7 @@ class ServerConfig:
     host: str
     port: int
     cors_allow_origins: list[str]
+    api_key: str
 
 
 @dataclass(frozen=True)
@@ -166,6 +167,7 @@ def parse_config(raw: Dict[str, Any]) -> AppConfig:
         host=str(server.get("host", "0.0.0.0")),
         port=int(server.get("port", 8021)),
         cors_allow_origins=list(server.get("cors_allow_origins", ["*"])),
+        api_key=_resolve_str(server, "api_key", required=True) or "",
     )
 
     neo4j_cfg = Neo4jConfig(
