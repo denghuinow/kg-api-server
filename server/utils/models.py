@@ -10,19 +10,14 @@ KGStatus = Literal["IDLE", "BUILDING", "UPDATING", "READY", "FAILED"]
 TaskType = Literal["full_build", "incremental_update"]
 
 
-class APIError(BaseModel):
-    code: str
-    message: str
-    detail: Optional[Any] = None
-
-
 T = TypeVar("T")
 
 
 class APIResponse(BaseModel, Generic[T]):
-    success: bool
+    code: str
+    msg: str
     data: Optional[T] = None
-    error: Optional[APIError] = None
+    error: Optional[str] = None
 
 
 class TriggerRequest(BaseModel):

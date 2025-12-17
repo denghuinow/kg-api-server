@@ -11,7 +11,6 @@ from .hooks import Hooks, load_hooks
 from .llm_clients import build_llm_resources
 from .logging_utils import setup_logging
 from .models import (
-    APIError,
     APIResponse,
     KGStatus,
     QueryResponse,
@@ -37,7 +36,6 @@ __all__ = [
     "load_hooks",
     "build_llm_resources",
     "setup_logging",
-    "APIError",
     "APIResponse",
     "KGStatus",
     "QueryResponse",
@@ -50,3 +48,4 @@ __all__ = [
     "TypesResponse",
     "ThrottledLangchainOutputParser",
 ]
+

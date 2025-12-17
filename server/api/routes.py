@@ -18,7 +18,6 @@ from ..storage import (
     VersionedGraphStore,
 )
 from ..utils import (
-    APIError,
     APIResponse,
     AppConfig,
     QueryResponse,
@@ -31,6 +30,18 @@ from ..utils import (
     load_hooks,
     setup_logging,
     ThrottledLangchainOutputParser,
+)
+from ..utils.result_code import (
+    ERROR,
+    SUCCESS,
+    TOKEN_FAIL_OR_EXPIRE,
+    TOKEN_IS_NULL,
+    KG_BUILD_FAILED,
+    KG_INVALID_GRAPH_NAME,
+    KG_NO_BASE_VERSION,
+    KG_NO_READY_VERSION,
+    KG_TASK_RUNNING,
+    KG_UPDATE_FAILED,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,15 +93,24 @@ def get_bearer_token_dependency(cfg: AppConfig):
 
 
 def _ok(data: Any) -> JSONResponse:
-    return JSONResponse(content=APIResponse(success=True, data=data).model_dump(mode="json"))
-
-
-def _err(status_code: int, code: str, message: str, detail: Any = None) -> JSONResponse:
     return JSONResponse(
-        status_code=status_code,
-        content=APIResponse(success=False, data=None, error=APIError(code=code, message=message, detail=detail)).model_dump(
-            mode="json"
-        ),
+        content=APIResponse(code=SUCCESS[0], msg=SUCCESS[1], data=data, error=None).model_dump(mode="json")
+    )
+
+
+def _err(result_code: tuple[str, str], detail: Any = None) -> JSONResponse:
+    """
+    返回错误响应
+    
+    Args:
+        result_code: 状态码元组 (code, msg)
+        detail: 详细错误信息（可选）
+    """
+    error_detail = str(detail) if detail is not None else None
+    return JSONResponse(
+        content=APIResponse(
+            code=result_code[0], msg=result_code[1], data=None, error=error_detail
+        ).model_dump(mode="json"),
     )
 
 
@@ -147,6 +167,20 @@ def create_app(cfg: AppConfig) -> FastAPI:
     # 创建 Bearer Token 验证依赖
     bearer_token_dependency = get_bearer_token_dependency(cfg)
 
+    # 添加 HTTPException 异常处理器，统一响应格式
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        """统一处理 HTTPException，转换为标准响应格式，固定返回 HTTP 200"""
+        # 根据异常详情判断业务状态码
+        if "缺少认证信息" in str(exc.detail) or "TOKEN为空" in str(exc.detail):
+            result_code = TOKEN_IS_NULL
+        elif "无效的认证令牌" in str(exc.detail) or "TOKEN校验失败" in str(exc.detail):
+            result_code = TOKEN_FAIL_OR_EXPIRE
+        else:
+            # 其他错误：使用系统异常
+            result_code = ERROR
+        return _err(result_code, detail=str(exc.detail))
+
     @app.on_event("shutdown")
     async def _shutdown() -> None:
         res: Resources = app.state.resources
@@ -169,7 +203,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         payload = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
         graph_name = (payload or {}).get("graph_name")
         if graph_name and str(graph_name).strip() != GRAPH_NAME_DEFAULT:
-            return _err(400, "INVALID_GRAPH_NAME", f"仅支持 graph_name={GRAPH_NAME_DEFAULT}")
+            return _err(KG_INVALID_GRAPH_NAME, detail=f"仅支持 graph_name={GRAPH_NAME_DEFAULT}")
 
         try:
             r = await res.build_service.trigger_full_build()
@@ -181,10 +215,10 @@ def create_app(cfg: AppConfig) -> FastAPI:
                 latest_ready_version=e.state.latest_ready_version,
                 current_task=e.current_task,
             ).model_dump(mode="json")
-            return _err(409, "TASK_RUNNING", "当前有任务进行中", detail=detail)
+            return _err(KG_TASK_RUNNING, detail=detail)
         except Exception as e:
             logger.exception("触发全量构建失败")
-            return _err(500, "INTERNAL_ERROR", "触发全量构建失败", detail=str(e))
+            return _err(KG_BUILD_FAILED, detail=str(e))
 
     @app.post("/kg/update/incremental", dependencies=[Depends(bearer_token_dependency)])
     async def kg_update_incremental(request: Request) -> JSONResponse:
@@ -192,11 +226,11 @@ def create_app(cfg: AppConfig) -> FastAPI:
         payload = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
         graph_name = (payload or {}).get("graph_name")
         if graph_name and str(graph_name).strip() != GRAPH_NAME_DEFAULT:
-            return _err(400, "INVALID_GRAPH_NAME", f"仅支持 graph_name={GRAPH_NAME_DEFAULT}")
+            return _err(KG_INVALID_GRAPH_NAME, detail=f"仅支持 graph_name={GRAPH_NAME_DEFAULT}")
 
         state, _ = res.state_store.get_state_and_task()
         if not state.latest_ready_version:
-            return _err(400, "NO_BASE_VERSION", "尚无 latest_ready_version，请先执行全量构建")
+            return _err(KG_NO_BASE_VERSION)
 
         try:
             r = await res.build_service.trigger_incremental_update(latest_ready_version=state.latest_ready_version)
@@ -213,17 +247,17 @@ def create_app(cfg: AppConfig) -> FastAPI:
                 latest_ready_version=e.state.latest_ready_version,
                 current_task=e.current_task,
             ).model_dump(mode="json")
-            return _err(409, "TASK_RUNNING", "当前有任务进行中", detail=detail)
+            return _err(KG_TASK_RUNNING, detail=detail)
         except Exception as e:
             logger.exception("触发增量更新失败")
-            return _err(500, "INTERNAL_ERROR", "触发增量更新失败", detail=str(e))
+            return _err(KG_UPDATE_FAILED, detail=str(e))
 
     @app.get("/kg/types/entities", dependencies=[Depends(bearer_token_dependency)])
     async def kg_types_entities() -> JSONResponse:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
         if not state.latest_ready_version:
-            return _err(404, "NO_READY_VERSION", "当前没有可查询的已完成版本")
+            return _err(KG_NO_READY_VERSION)
         types = res.graph_store.get_entity_types(state.latest_ready_version)
         data = TypesResponse(version=state.latest_ready_version, entity_types=types)
         return _ok(data.model_dump(mode="json"))
@@ -233,7 +267,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
         if not state.latest_ready_version:
-            return _err(404, "NO_READY_VERSION", "当前没有可查询的已完成版本")
+            return _err(KG_NO_READY_VERSION)
         types = res.graph_store.get_relation_types(state.latest_ready_version)
         data = TypesResponse(version=state.latest_ready_version, relation_types=types)
         return _ok(data.model_dump(mode="json"))
@@ -251,7 +285,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
         if not state.latest_ready_version:
-            return _err(404, "NO_READY_VERSION", "当前没有可查询的已完成版本")
+            return _err(KG_NO_READY_VERSION)
 
         def _split_csv(v: Optional[str]) -> Optional[list[str]]:
             if not v:
@@ -279,7 +313,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
         res: Resources = app.state.resources
         state, _ = res.state_store.get_state_and_task()
         if not state.latest_ready_version:
-            return _err(404, "NO_READY_VERSION", "当前没有可查询的已完成版本")
+            return _err(KG_NO_READY_VERSION)
 
         entity_count, relation_count, node_type_count = res.graph_store.get_stats(state.latest_ready_version)
         data = StatsResponse(

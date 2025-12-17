@@ -38,8 +38,8 @@
 ### 4.2 并发与幂等（防重复触发）
 - 当系统状态为 `BUILDING` 或 `UPDATING` 时：
   - 禁止再次触发全量构建或增量更新
-  - 返回 HTTP `409 Conflict`，并在响应中包含当前任务信息（task_id/version/status）
-- 状态查询接口用于前端展示与“防重复触发”。
+  - 返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200，并在响应中包含当前任务信息（task_id/version/status）
+- 状态查询接口用于前端展示与"防重复触发"。
 
 ### 4.3 查询一致性
 - 所有查询接口（类型/查询/统计）必须基于 `latest_ready_version`。
@@ -76,7 +76,7 @@
 状态转换（核心规则）：
 - `IDLE/READY/FAILED` -> 触发全量构建 -> `BUILDING` -> 成功 -> `READY`
 - `IDLE/READY/FAILED` -> 触发增量更新 -> `UPDATING` -> 成功 -> `READY`
-- `BUILDING/UPDATING` -> 再次触发 -> `409 Conflict`（不改变状态）
+- `BUILDING/UPDATING` -> 再次触发 -> 返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200（不改变状态）
 - `BUILDING/UPDATING` -> 失败 -> `FAILED`
 
 ### 5.2 任务记录（status 查询返回）
@@ -107,7 +107,7 @@
 #### 5.3.2 触发互斥（防重复触发）
 - 触发 build/update 前，必须先在 Neo4j 中原子更新 `KGState.status`：
   - 仅当当前 `status` 不为 `BUILDING/UPDATING` 时，才允许将其更新为目标状态并写入 `current_task_id`
-  - 否则返回 `409 Conflict`
+  - 否则返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200
 
 #### 5.3.3 重启恢复
 - 服务启动时读取 `KGState`：
@@ -148,7 +148,7 @@
   - `since_version`：上次已完成版本号（`latest_ready_version`）
 - 行为约束：
   - 返回自 `since_version` 以来的增量数据集合
-  - 若 `latest_ready_version` 为空（第一次运行），增量更新返回 `400`，提示先全量构建
+  - 若 `latest_ready_version` 为空（第一次运行），增量更新返回业务状态码 `K10003`（尚无 latest_ready_version，请先执行全量构建），HTTP 状态码为 200
 
 ### 7.3 Hook 配置方式（建议）
 在 `config.yaml` 指定 hook 的导入路径，例如：
@@ -171,7 +171,7 @@
   - `graph_name?: string`（可选，若系统支持多图谱；当前默认单图谱可省略）
   - `trigger_source?: string`（可选，如 "manual"/"schedule"）
 - 行为：
-  - 若当前 `status` 为 `BUILDING/UPDATING`，返回 `409`
+  - 若当前 `status` 为 `BUILDING/UPDATING`，返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200
   - 生成 `version=timestamp`，启动后台任务
   - 调用 `get_full_data()` 获取字符串数组并完成构建
 - 响应（示例 data）：
@@ -185,8 +185,8 @@
   - `graph_name?: string`
   - `trigger_source?: string`
 - 行为：
-  - 若当前 `status` 为 `BUILDING/UPDATING`，返回 `409`
-  - 若 `latest_ready_version` 为空，返回 `400`（提示先执行全量构建）
+  - 若当前 `status` 为 `BUILDING/UPDATING`，返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200
+  - 若 `latest_ready_version` 为空，返回业务状态码 `K10003`（尚无 latest_ready_version，请先执行全量构建），HTTP 状态码为 200
   - 生成 `version=timestamp`，读取 `base_version=latest_ready_version`
   - 调用 `get_incremental_data(base_version)` 获取增量字符串数组并完成更新，产出新版本
 - 响应（示例 data）：
@@ -229,9 +229,9 @@
   - `depth?: int`（可选，子图扩展深度，默认 1~2）
   - `include_properties?: bool`（默认 false）
 - 行为：
-  - 若 `latest_ready_version` 为空，返回 `404`（表示当前没有可查询的已完成版本）
+  - 若 `latest_ready_version` 为空，返回业务状态码 `K10004`（当前没有可查询的已完成版本），HTTP 状态码为 200
   - 仅基于 `latest_ready_version` 查询
-  - 当 `q` 非空时：返回“匹配关键词的节点”及其一定范围内的关联边，形成子图
+  - 当 `q` 非空时：返回"匹配关键词的节点"及其一定范围内的关联边，形成子图
   - 当 `q` 不传或为空时：返回 `latest_ready_version` 的全量图谱数据（`nodes`/`edges`）
   - 全量/子图两种模式均受 `limit_nodes`/`limit_edges` 约束；超出限制时设置 `truncated=true`
 - 响应（示例 data）：
@@ -251,20 +251,25 @@
   - `node_type_count: int`
 
 ## 9. 错误码约定（建议）
-- `400 Bad Request`
-  - 参数缺失/非法
-  - 增量更新但 `latest_ready_version` 为空
-- `404 Not Found`
-  - 当前没有可查询的已完成版本（`latest_ready_version` 为空）
-- `409 Conflict`
-  - 当前正在 `BUILDING/UPDATING`，拒绝重复触发
-- `500 Internal Server Error`
-  - Neo4j 连接失败、hook 异常、内部执行异常
 
-错误响应建议：
-- `error.code`：如 `TASK_RUNNING`、`NO_BASE_VERSION`、`HOOK_FAILED`、`NEO4J_ERROR`
-- `error.message`：面向用户的简短信息
-- `error.detail`：可选的调试信息（生产可关闭）
+**所有接口统一返回 HTTP 200 状态码**，错误信息通过业务状态码（`code` 字段）区分。
+
+业务错误码约定：
+- `K10001`：当前正在 `BUILDING/UPDATING`，拒绝重复触发
+- `K10002`：无效的图谱名称
+- `K10003`：增量更新但 `latest_ready_version` 为空（需先执行全量构建）
+- `K10004`：当前没有可查询的已完成版本（`latest_ready_version` 为空）
+- `K10005`：触发全量构建失败
+- `K10006`：触发增量更新失败
+- `A0230`：TOKEN校验失败或过期
+- `A0231`：TOKEN为空
+- `-1`：系统异常（Neo4j 连接失败、hook 异常、内部执行异常等）
+
+错误响应格式：
+- `code`：业务状态码（如 `K10001`、`K10003` 等）
+- `msg`：面向用户的简短错误信息
+- `data`：错误时为 `null`
+- `error`：可选的详细错误信息（调试用，生产可关闭）
 
 ## 10. 配置文件（config.yaml）需求项（建议）
 必须支持但不限于以下配置项：
@@ -297,7 +302,7 @@ OpenAI 兼容模型配置（LLM 与 Embeddings）：
 ## 11. 验收标准（Acceptance Criteria）
 - 能成功触发全量构建，生成新版本号，并在 Neo4j 中写入该版本数据。
 - 能成功触发增量更新：以 `base_version=latest_ready_version` 为基线生成新版本，并保留历史版本数据。
-- 构建/更新进行中时再次触发返回 `409`，且 `/kg/status` 可准确展示当前任务信息。
+- 构建/更新进行中时再次触发返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200，且 `/kg/status` 可准确展示当前任务信息。
 - 所有查询接口均只返回 `latest_ready_version` 对应的数据（构建/更新进行中也不影响查询一致性）。
 - Neo4j 中的元数据（`KGState/KGTask`）能在服务重启后恢复 `latest_ready_version` 与可用状态（进行中任务按约定标记失败或恢复）。
 - LLM/Embeddings 调用支持并发控制、RPM/TPM 限流与指数回避重试，在触发限额或短暂网络异常时任务可自动恢复或以明确错误失败。
@@ -333,7 +338,7 @@ OpenAI 兼容模型配置（LLM 与 Embeddings）：
 ### 12.3 元数据与互斥实现（单实例）
 - `KGState` 固定 `graph_name="default"`。
 - 触发 build/update 时：
-  - 在同一个事务内检查 `KGState.status`，若非 `BUILDING/UPDATING` 则更新为目标状态并写入 `current_task_id`；否则返回 `409`。
+  - 在同一个事务内检查 `KGState.status`，若非 `BUILDING/UPDATING` 则更新为目标状态并写入 `current_task_id`；否则返回业务状态码 `K10001`（当前有任务进行中），HTTP 状态码为 200。
 - `GET /kg/status` 读取 `KGState` + 关联 `KGTask` 返回。
 - 启动时：
   - 若发现 `KGState.status` 为 `BUILDING/UPDATING`，将其置为 `FAILED` 并记录 `server restarted`。
