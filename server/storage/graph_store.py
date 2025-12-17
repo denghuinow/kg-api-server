@@ -246,6 +246,7 @@ ORDER BY t
         limit_nodes: int,
         limit_edges: int,
         depth: int,
+        max_depth: int,
         max_seed_nodes: int,
         include_properties: bool,
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], bool]:
@@ -253,6 +254,7 @@ ORDER BY t
         limit_nodes_plus = int(max(1, limit_nodes)) + 1
         limit_edges_plus = int(max(0, limit_edges)) + 1
         depth = int(max(0, depth))
+        max_depth = int(max(0, max_depth))
 
         entity_types = [str(x).strip() for x in (entity_types or []) if str(x).strip()]
         relation_types = [str(x).strip() for x in (relation_types or []) if str(x).strip()]
@@ -326,13 +328,14 @@ LIMIT $seed_limit
             for row in seed_rows:
                 add_node(row["s"], row["s_id"])
 
-            if depth > 0 and limit_edges > 0 and seed_rows:
-                expand_query = """
-MATCH (s:Entity {kg_version: $v})
+            safe_depth = min(depth, max_depth)
+            if safe_depth > 0 and limit_edges > 0 and seed_rows:
+                expand_query = f"""
+MATCH (s:Entity {{kg_version: $v}})
 WHERE toLower(s.name) CONTAINS toLower($q)
   AND (size($entity_types) = 0 OR s.entity_label IN $entity_types)
 WITH s LIMIT $seed_limit
-MATCH path = (s)-[rels:REL*1..$depth]-(n:Entity {kg_version: $v})
+MATCH path = (s)-[rels:REL*1..{safe_depth}]-(n:Entity {{kg_version: $v}})
 WHERE ALL(r IN rels WHERE r.kg_version = $v AND (size($relation_types) = 0 OR r.predicate IN $relation_types))
   AND ALL(x IN nodes(path) WHERE x.kg_version = $v AND (size($entity_types) = 0 OR x.entity_label IN $entity_types))
 UNWIND relationships(path) AS r
@@ -351,7 +354,6 @@ RETURN a AS s, elementId(a) AS s_id, properties(r) AS rp, r_id AS r_id, b AS t, 
                         "v": version,
                         "q": q,
                         "seed_limit": int(max(1, max_seed_nodes)),
-                        "depth": depth,
                         "limit_edges": limit_edges_plus,
                         "entity_types": entity_types,
                         "relation_types": relation_types,

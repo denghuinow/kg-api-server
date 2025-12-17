@@ -302,6 +302,7 @@ def create_app(cfg: AppConfig) -> FastAPI:
             limit_nodes=limit_nodes or res.cfg.query.default_limit_nodes,
             limit_edges=limit_edges or res.cfg.query.default_limit_edges,
             depth=depth if depth is not None else res.cfg.query.default_depth,
+            max_depth=res.cfg.query.max_depth,
             max_seed_nodes=res.cfg.query.max_seed_nodes,
             include_properties=include_properties,
         )

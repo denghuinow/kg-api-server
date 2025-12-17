@@ -108,6 +108,7 @@ class QueryConfig:
     default_limit_nodes: int
     default_limit_edges: int
     default_depth: int
+    max_depth: int
     max_seed_nodes: int
 
 
@@ -194,6 +195,7 @@ def parse_config(raw: Dict[str, Any]) -> AppConfig:
         default_limit_nodes=int(query.get("default_limit_nodes", 500)),
         default_limit_edges=int(query.get("default_limit_edges", 1000)),
         default_depth=int(query.get("default_depth", 2)),
+        max_depth=int(query.get("max_depth", 5)),
         max_seed_nodes=int(query.get("max_seed_nodes", 30)),
     )
 
@@ -232,4 +234,3 @@ def parse_config(raw: Dict[str, Any]) -> AppConfig:
         task=task_cfg,
         raw=raw,
     )
-

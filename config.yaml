@@ -18,6 +18,7 @@ query:
   default_limit_nodes: 500
   default_limit_edges: 1000
   default_depth: 2
+  max_depth: 10
   max_seed_nodes: 30
 
 hooks:

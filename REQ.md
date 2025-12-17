@@ -276,7 +276,7 @@
 - `server.host` / `server.port` / `server.cors_allow_origins`
 - `neo4j.uri` / `neo4j.username` / `neo4j.password(_env)` / `neo4j.database`
 - `retention.max_versions` / `retention.enable_cleanup`
-- `query.default_limit_nodes` / `query.default_limit_edges` / `query.default_depth`
+- `query.default_limit_nodes` / `query.default_limit_edges` / `query.default_depth` / `query.max_depth`
 - `hooks.module` / `hooks.full` / `hooks.incremental`
 - `task.timeout_s`（可选）
 
